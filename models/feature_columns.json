@@ -1,0 +1,21 @@
+{
+  "numerical_features": [
+    "YEAR",
+    "MONTH",
+    "HOUR",
+    "AREA",
+    "LAT_GRID",
+    "LON_GRID",
+    "PREV_WEEK_CRIME_COUNT",
+    "PREV_2_WEEK_CRIME_COUNT",
+    "PREV_3_WEEK_CRIME_COUNT",
+    "ROLLING_4_WEEK_CRIME_COUNT",
+    "GRID_TOTAL_PREVIOUS_CRIMES"
+  ],
+  "categorical_features": [
+    "DAY_OF_WEEK",
+    "AREA NAME",
+    "DOMINANT_CRIME_TYPE",
+    "DOMINANT_PREMISE"
+  ]
+}
