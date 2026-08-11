@@ -1,12 +1,12 @@
 """Professional Streamlit UI for Crime Hotspot Prediction."""
 
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
 import streamlit as st
 
-from src.predict import FEATURE_COLUMNS, predict_hotspot
-from src.save_prediction import save_prediction
+from src.predict import predict_hotspot
 
 
 # ============================================================
@@ -26,7 +26,28 @@ st.set_page_config(
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
-PREDICTIONS_CSV = PROJECT_ROOT / "data" / "predictions" / "prediction_history.csv"
+
+CSV_COLUMNS = [
+    "timestamp",
+    "YEAR",
+    "MONTH",
+    "DAY_OF_WEEK",
+    "HOUR",
+    "AREA",
+    "AREA_NAME",
+    "LAT_GRID",
+    "LON_GRID",
+    "DOMINANT_CRIME_TYPE",
+    "DOMINANT_PREMISE",
+    "PREV_WEEK_CRIME_COUNT",
+    "PREV_2_WEEK_CRIME_COUNT",
+    "PREV_3_WEEK_CRIME_COUNT",
+    "ROLLING_4_WEEK_CRIME_COUNT",
+    "GRID_TOTAL_PREVIOUS_CRIMES",
+    "prediction",
+    "prediction_label",
+    "probability",
+]
 
 
 # ============================================================
@@ -89,21 +110,67 @@ def load_training_categories():
         return [], [], []
 
 
-@st.cache_data(show_spinner=False)
-def load_prediction_history():
-    """Load prediction history from CSV if it exists."""
-    if not PREDICTIONS_CSV.exists():
-        return pd.DataFrame()
-
-    try:
-        return pd.read_csv(PREDICTIONS_CSV)
-    except Exception:
-        return pd.DataFrame()
-
-
 # ============================================================
 # HELPERS
 # ============================================================
+
+
+def initialize_session_state():
+    """Initialize session-based prediction history for the current browser session."""
+    if "prediction_history" not in st.session_state:
+        st.session_state.prediction_history = pd.DataFrame(columns=CSV_COLUMNS)
+    if "last_result" not in st.session_state:
+        st.session_state.last_result = None
+
+
+def get_session_history():
+    """Return the current user's prediction history from session state."""
+    initialize_session_state()
+    history_df = st.session_state.prediction_history
+    if history_df is None:
+        history_df = pd.DataFrame(columns=CSV_COLUMNS)
+    return history_df.copy()
+
+
+def append_prediction_to_session(input_data, result):
+    """Append a prediction row to the current browser session history."""
+    history_df = get_session_history()
+    row = {
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "YEAR": input_data["YEAR"],
+        "MONTH": input_data["MONTH"],
+        "DAY_OF_WEEK": input_data["DAY_OF_WEEK"],
+        "HOUR": input_data["HOUR"],
+        "AREA": input_data["AREA"],
+        "AREA_NAME": input_data["AREA NAME"],
+        "LAT_GRID": input_data["LAT_GRID"],
+        "LON_GRID": input_data["LON_GRID"],
+        "DOMINANT_CRIME_TYPE": input_data["DOMINANT_CRIME_TYPE"],
+        "DOMINANT_PREMISE": input_data["DOMINANT_PREMISE"],
+        "PREV_WEEK_CRIME_COUNT": input_data["PREV_WEEK_CRIME_COUNT"],
+        "PREV_2_WEEK_CRIME_COUNT": input_data["PREV_2_WEEK_CRIME_COUNT"],
+        "PREV_3_WEEK_CRIME_COUNT": input_data["PREV_3_WEEK_CRIME_COUNT"],
+        "ROLLING_4_WEEK_CRIME_COUNT": input_data["ROLLING_4_WEEK_CRIME_COUNT"],
+        "GRID_TOTAL_PREVIOUS_CRIMES": input_data["GRID_TOTAL_PREVIOUS_CRIMES"],
+        "prediction": int(result["prediction"]),
+        "prediction_label": result["prediction_label"],
+        "probability": float(result["probability"]),
+    }
+    row_df = pd.DataFrame([row], columns=CSV_COLUMNS)
+    if history_df.empty:
+        history_df = row_df.copy()
+    else:
+        history_df = pd.concat([history_df, row_df], ignore_index=True)
+    st.session_state.prediction_history = history_df
+    return history_df
+
+
+def build_history_csv_bytes(history_df):
+    """Create CSV bytes for the current session history."""
+    if history_df.empty:
+        empty_df = pd.DataFrame(columns=CSV_COLUMNS)
+        return empty_df.to_csv(index=False).encode("utf-8")
+    return history_df.to_csv(index=False).encode("utf-8")
 
 MONTH_MAP = {
     "January": 1,
@@ -183,8 +250,7 @@ def show_result_card(result):
 # ============================================================
 
 def main():
-    if "last_result" not in st.session_state:
-        st.session_state.last_result = None
+    initialize_session_state()
 
     st.title("🚨 Crime Hotspot Prediction System")
     st.markdown("### Machine Learning Based Crime Hotspot Prediction")
@@ -291,10 +357,9 @@ def render_prediction_page(area_names, crime_types, premises):
             with st.spinner("Running Random Forest prediction..."):
                 result = predict_hotspot(input_data)
 
-            save_prediction(input_data, result)
-            load_prediction_history.clear()
+            append_prediction_to_session(input_data, result)
             st.session_state.last_result = result
-            st.success("✅ Prediction saved successfully to the prediction history CSV.")
+            st.success("✅ Prediction added to your current session history.")
         except Exception as exc:
             st.error(f"Prediction could not be completed. {exc}")
 
@@ -305,10 +370,10 @@ def render_prediction_page(area_names, crime_types, premises):
 
 def render_dashboard():
     st.subheader("📊 Dashboard Overview")
-    history_df = load_prediction_history()
+    history_df = get_session_history()
 
     if history_df.empty:
-        st.info("No prediction history is available yet. Use the prediction view to create records.")
+        st.info("No prediction history is available yet. Make a prediction to populate this session dashboard.")
         return
 
     history_df = history_df.copy()
@@ -357,7 +422,7 @@ def render_dashboard():
         map_df = map_df[pd.to_numeric(map_df["lat"], errors="coerce").notna() & pd.to_numeric(map_df["lon"], errors="coerce").notna()]
 
         if not map_df.empty:
-            st.caption("Prediction locations from the current history file are shown below.")
+            st.caption("Prediction locations from your current session history are shown below.")
             st.map(map_df[["lat", "lon"]])
         else:
             st.info("Not enough valid latitude and longitude values are available for the map view.")
@@ -365,10 +430,10 @@ def render_dashboard():
 
 def render_history_page():
     st.subheader("📋 Prediction History")
-    history_df = load_prediction_history()
+    history_df = get_session_history()
 
     if history_df.empty:
-        st.info("No prediction history has been saved yet.")
+        st.info("No predictions have been made in this browser session yet.")
         return
 
     history_df = history_df.copy()
@@ -410,7 +475,7 @@ def render_history_page():
 
     st.dataframe(filtered_df, use_container_width=True, hide_index=True)
 
-    csv_bytes = history_df.to_csv(index=False).encode("utf-8")
+    csv_bytes = build_history_csv_bytes(history_df)
     st.download_button("⬇️ Download Prediction History CSV", data=csv_bytes, file_name="prediction_history.csv", mime="text/csv", use_container_width=True)
 
 
