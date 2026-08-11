@@ -26,6 +26,7 @@ st.set_page_config(
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
+UI_CATEGORIES_PATH = PROJECT_ROOT / "data" / "ui_categories.json"
 
 CSV_COLUMNS = [
     "timestamp",
@@ -90,21 +91,19 @@ st.markdown(
 
 @st.cache_data(show_spinner=False)
 def load_training_categories():
-    """Load category values from the processed training dataset."""
-    x_train_path = PROCESSED_DIR / "X_train.csv"
-
-    if not x_train_path.exists():
+    """Load category values from the deployment-safe UI categories JSON file."""
+    if not UI_CATEGORIES_PATH.exists():
         return [], [], []
 
     try:
-        df = pd.read_csv(
-            x_train_path,
-            usecols=["AREA NAME", "DOMINANT_CRIME_TYPE", "DOMINANT_PREMISE"],
-        )
+        import json
 
-        area_names = sorted(df["AREA NAME"].dropna().astype(str).unique())
-        crime_types = sorted(df["DOMINANT_CRIME_TYPE"].dropna().astype(str).unique())
-        premises = sorted(df["DOMINANT_PREMISE"].dropna().astype(str).unique())
+        with UI_CATEGORIES_PATH.open("r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+
+        area_names = sorted([str(value) for value in payload.get("area_names", [])])
+        crime_types = sorted([str(value) for value in payload.get("crime_types", [])])
+        premises = sorted([str(value) for value in payload.get("premises", [])])
         return area_names, crime_types, premises
     except Exception:
         return [], [], []
@@ -266,8 +265,8 @@ def main():
     )
 
     area_names, crime_types, premises = load_training_categories()
-    if not area_names:
-        st.sidebar.warning("Training category values could not be loaded from X_train.csv.")
+    if not area_names and not crime_types and not premises:
+        st.sidebar.warning("UI category values could not be loaded from data/ui_categories.json.")
 
     if navigation == "📊 Dashboard":
         render_dashboard()
